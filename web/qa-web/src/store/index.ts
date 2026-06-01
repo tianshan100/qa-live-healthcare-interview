@@ -3,6 +3,8 @@ import doctorData from '../data/doctor-user-list.json';
 import patientData from '../data/patient-user.json';
 import questionData from '../data/question-list.json';
 
+const API_BASE = 'http://localhost:8080/api';
+
 export interface Doctor {
   id: string;
   username: string;
@@ -18,8 +20,8 @@ export interface Doctor {
 
 export interface Patient {
   id: string;
+  username: string;
   name: string;
-  birthday: string;
   phone: string;
   gender: string;
 }
@@ -47,7 +49,7 @@ interface State {
 
 const state = reactive<State>({
   doctors: doctorData as Doctor[],
-  patients: patientData as Patient[],
+  patients: [] as Patient[],
   questions: questionData as Question[],
   currentDoctor: null,
   currentPatient: null,
@@ -55,6 +57,22 @@ const state = reactive<State>({
 
 export const store = {
   state,
+
+  async fetchDoctors(): Promise<void> {
+    try {
+      const response = await fetch(`${API_BASE}/doctors`);
+      if (response.ok) {
+        const doctors = await response.json();
+        state.doctors = doctors.map((d: any) => ({
+          ...d,
+          id: String(d.id),
+          specialties: Array.isArray(d.specialties) ? d.specialties : [],
+        }));
+      }
+    } catch (e) {
+      console.warn('Failed to fetch doctors from API, using local data', e);
+    }
+  },
 
   loginDoctor(username: string, password: string): Doctor | null {
     const doctor = state.doctors.find(
@@ -71,24 +89,33 @@ export const store = {
     state.currentDoctor = null;
   },
 
-  verifyPatient(name: string, birthday: string): Patient {
-    let patient = state.patients.find(
-      p => p.name === name && p.birthday === birthday
-    );
+  async loginPatient(username: string, password: string): Promise<{ success: boolean; message: string }> {
+    try {
+      const response = await fetch(`${API_BASE}/patients/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+      });
 
-    if (!patient) {
-      patient = {
-        id: `patient${Date.now()}`,
-        name,
-        birthday,
-        phone: '',
-        gender: '',
-      };
-      state.patients.push(patient);
+      const result = await response.json();
+
+      if (response.ok) {
+        const data = result.data as any;
+        const patient: Patient = {
+          id: String(data.id),
+          username: data.username,
+          name: data.name || data.username,
+          phone: data.phone || '',
+          gender: data.gender || '',
+        };
+        state.currentPatient = patient;
+        return { success: true, message: result.message };
+      } else {
+        return { success: false, message: result.message || '登录失败' };
+      }
+    } catch (e) {
+      return { success: false, message: '网络异常，请重试' };
     }
-
-    state.currentPatient = patient;
-    return patient;
   },
 
   logoutPatient() {
